@@ -1301,7 +1301,10 @@ static void generate_initial_areas(
             //FIXME mesh_group_settings.support_angle does not apply to enforcers and also it does not apply to automatic support angle (by half the external perimeter width).
             //used by max_overhang_insert_lag, only if not min_xy_dist.
             const auto max_overhang_speed  = coord_t(tan(mesh_group_settings.support_angle) * config.layer_height);
-            max_overhang_insert_lag = std::max(max_overhang_insert_lag, round_up_divide(config.xy_distance, max_overhang_speed / 2));
+            // Guard: integer division max_overhang_speed/2 can be 0 when the
+            // layer is very thin or the angle is very small, causing div-by-zero.
+            if (max_overhang_speed >= 2)
+                max_overhang_insert_lag = std::max(max_overhang_insert_lag, round_up_divide(config.xy_distance, max_overhang_speed / 2));
         }
     }
 
@@ -1928,8 +1931,11 @@ static void increase_areas_one_layer(
             Polygons inc_wo_collision;
             // Check whether it is faster to calculate the area increased with the fast speed independently from the slow area, or time could be saved by reusing the slow area to calculate the fast one.
             // Calculated by comparing the steps saved when calcualting idependently with the saved steps when not.
-            bool offset_independant_faster = radius / safe_movement_distance - int(config.maximum_move_distance + extra_speed < radius + safe_movement_distance) >
-                                             round_up_divide((extra_speed + extra_slow_speed + config.maximum_move_distance_slow), safe_movement_distance);
+            // Guard: safe_movement_distance can be 0 when support_object_xy_distance=0,
+            // making both the plain division and round_up_divide undefined behaviour.
+            bool offset_independant_faster = safe_movement_distance > 0 &&
+                                             (radius / safe_movement_distance - int(config.maximum_move_distance + extra_speed < radius + safe_movement_distance) >
+                                              round_up_divide((extra_speed + extra_slow_speed + config.maximum_move_distance_slow), safe_movement_distance));
             for (const AreaIncreaseSettings &settings : order) {
                 if (settings.move) {
                     if (offset_slow.empty() && (settings.increase_speed == slow_speed || ! offset_independant_faster)) {
