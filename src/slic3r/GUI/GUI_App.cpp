@@ -321,10 +321,17 @@ public:
     {
         set_bitmap(m_main_bitmap);
         if (!text.empty()) {
-            wxBitmap bitmap(m_main_bitmap);
+            // GetSubBitmap forces an independent deep copy of the Cairo surface.
+            // wxBitmap(other) is a shallow copy: if the window display holds a
+            // reference to the same surface, SelectObject can fail silently,
+            // leaving memDC with a null Pango context → SIGSEGV in GetTextExtent.
+            wxBitmap bitmap = m_main_bitmap.GetSubBitmap(
+                wxRect(0, 0, m_main_bitmap.GetWidth(), m_main_bitmap.GetHeight()));
 
             wxMemoryDC memDC;
             memDC.SelectObject(bitmap);
+            if (!memDC.IsOk())
+                return; // SelectObject failed: null Pango context, abort safely
             memDC.SetFont(m_action_font);
             memDC.SetTextForeground(StateColor::darkModeColorFor(wxColour(144, 144, 144)));
             int width = bitmap.GetWidth();
@@ -2869,8 +2876,19 @@ bool GUI_App::on_init_inner()
         BOOST_LOG_TRIVIAL(info) << "begin to show the splash screen...";
         //BBS use BBL splashScreen
         scrn = new SplashScreen(bmp, wxSPLASH_CENTRE_ON_SCREEN | wxSPLASH_TIMEOUT, 1500, splashscreen_pos);
+        // Guard against heap-use-after-free: the 1500ms auto-close timer can fire
+        // inside a nested GTK event loop (e.g. a wxASSERT dialog) and let
+        // wxPendingDelete free the SplashScreen while on_init_inner() still holds
+        // scrn. Use a shared_ptr so the destroy callback can null the pointer from
+        // heap memory regardless of when or where the destruction occurs.
+        auto scrn_sp = std::make_shared<SplashScreen*>(scrn);
+        scrn->Bind(wxEVT_DESTROY, [sp = scrn_sp](wxWindowDestroyEvent& e) {
+            *sp = nullptr; e.Skip();
+        });
         wxYield();
-        scrn->SetText(_L("Loading configuration")+ dots);
+        scrn = *scrn_sp;
+        if (scrn)
+            scrn->SetText(_L("Loading configuration")+ dots);
     }
 
     BOOST_LOG_TRIVIAL(info) << "loading systen presets...";
