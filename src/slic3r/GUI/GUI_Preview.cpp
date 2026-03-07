@@ -44,7 +44,8 @@ View3D::View3D(wxWindow* parent, Bed3D& bed, Model* model, DynamicPrintConfig* c
     : m_canvas_widget(nullptr)
     , m_canvas(nullptr)
 {
-    init(parent, bed, model, config, process);
+    if (!init(parent, bed, model, config, process))
+        BOOST_LOG_TRIVIAL(error) << "View3D: OpenGL canvas initialisation failed; 3D view will be unavailable.";
 }
 
 View3D::~View3D()
@@ -63,8 +64,15 @@ bool View3D::init(wxWindow* parent, Bed3D& bed, Model* model, DynamicPrintConfig
     m_canvas_widget = OpenGLManager::create_wxglcanvas(*this, (init_params != nullptr) ? init_params->opengl_aa : false);
 #else
     m_canvas_widget = OpenGLManager::create_wxglcanvas(*this);
-    if (m_canvas_widget == nullptr)
+    if (m_canvas_widget == nullptr) {
+        BOOST_LOG_TRIVIAL(error) << "View3D::init: create_wxglcanvas returned nullptr; OpenGL canvas creation failed.";
         return false;
+    }
+    if (m_canvas_widget->GetHandle() == nullptr) {
+        BOOST_LOG_TRIVIAL(error) << "View3D::init: wxGLCanvas GTK widget is NULL; "
+            "EGL/GLX initialisation likely failed (check DRI_PRIME, EGL driver, Wayland/X11 backend).";
+        return false;
+    }
 
     m_canvas = new GLCanvas3D(m_canvas_widget, bed);
     m_canvas->set_context(wxGetApp().init_glcontext(*m_canvas_widget));
@@ -237,7 +245,9 @@ Preview::Preview(
     , m_gcode_result(gcode_result)
     , m_schedule_background_process(schedule_background_process_func)
 {
-    if (init(parent, bed, model))
+    if (!init(parent, bed, model))
+        BOOST_LOG_TRIVIAL(error) << "Preview: OpenGL canvas initialisation failed; preview will be unavailable.";
+    else
         load_print();
 }
 
@@ -262,8 +272,15 @@ bool Preview::init(wxWindow* parent, Bed3D& bed, Model* model)
 
     m_canvas_widget = OpenGLManager::create_wxglcanvas(*this);
 #endif // ENABLE_OPENGL_AUTO_AA_SAMPLES
-    if (m_canvas_widget == nullptr)
+    if (m_canvas_widget == nullptr) {
+        BOOST_LOG_TRIVIAL(error) << "Preview::init: create_wxglcanvas returned nullptr; OpenGL canvas creation failed.";
         return false;
+    }
+    if (m_canvas_widget->GetHandle() == nullptr) {
+        BOOST_LOG_TRIVIAL(error) << "Preview::init: wxGLCanvas GTK widget is NULL; "
+            "EGL/GLX initialisation likely failed (check DRI_PRIME, EGL driver, Wayland/X11 backend).";
+        return false;
+    }
 
     m_canvas = new GLCanvas3D(m_canvas_widget, bed);
     m_canvas->set_context(wxGetApp().init_glcontext(*m_canvas_widget));
@@ -749,7 +766,8 @@ AssembleView::AssembleView(wxWindow* parent, Bed3D& bed, Model* model, DynamicPr
     : m_canvas_widget(nullptr)
     , m_canvas(nullptr)
 {
-    init(parent, bed, model, config, process);
+    if (!init(parent, bed, model, config, process))
+        BOOST_LOG_TRIVIAL(error) << "AssembleView: OpenGL canvas initialisation failed; assembly view will be unavailable.";
 }
 
 AssembleView::~AssembleView()
@@ -769,8 +787,15 @@ bool AssembleView::init(wxWindow* parent, Bed3D& bed, Model* model, DynamicPrint
 #else
     m_canvas_widget = OpenGLManager::create_wxglcanvas(*this);
 #endif // ENABLE_OPENGL_AUTO_AA_SAMPLES
-    if (m_canvas_widget == nullptr)
+    if (m_canvas_widget == nullptr) {
+        BOOST_LOG_TRIVIAL(error) << "AssembleView::init: create_wxglcanvas returned nullptr; OpenGL canvas creation failed.";
         return false;
+    }
+    if (m_canvas_widget->GetHandle() == nullptr) {
+        BOOST_LOG_TRIVIAL(error) << "AssembleView::init: wxGLCanvas GTK widget is NULL; "
+            "EGL/GLX initialisation likely failed (check DRI_PRIME, EGL driver, Wayland/X11 backend).";
+        return false;
+    }
 
     m_canvas = new GLCanvas3D(m_canvas_widget, bed);
     m_canvas->set_context(wxGetApp().init_glcontext(*m_canvas_widget));

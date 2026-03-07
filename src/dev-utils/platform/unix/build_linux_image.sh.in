@@ -57,25 +57,45 @@ export LD_LIBRARY_PATH="\$DIR/bin:\$LD_LIBRARY_PATH"
 # 1) OrcaSlicer will segfault on systems where locale info is not as expected (i.e. Holo-ISO arch-based distro)
 export LC_ALL=C
 
-if [ "\$XDG_SESSION_TYPE" = "wayland" ] && [ "\$ZINK_DISABLE_OVERRIDE" != "1" ]; then
+# Nvidia + Wayland (XWayland) OpenGL workaround.
+#
+# Zink (Mesa Vulkan-backed OpenGL) is opt-in only.  Forcing Zink on 556+
+# drivers exhausts Vulkan device memory during complex slicing (vkMapMemory
+# failures), so it is never enabled automatically.
+#
+# Override env vars:
+#   ZINK_ENABLE_OVERRIDE=1   – force Zink (testing/fallback)
+if [ "\$XDG_SESSION_TYPE" = "wayland" ]; then
     if command -v glxinfo >/dev/null 2>&1; then
         RENDERER=\$(glxinfo | grep "OpenGL renderer string:" | sed 's/.*: //')
         if echo "\$RENDERER" | grep -qi "NVIDIA"; then
-            if command -v nvidia-smi >/dev/null 2>&1; then
-                DRIVER_VERSION=\$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n1)
-                DRIVER_MAJOR=\$(echo "\$DRIVER_VERSION" | cut -d. -f1)
-                [ "\$DRIVER_MAJOR" -gt 555 ] && ZINK_FORCE_OVERRIDE=1
-            fi
-            if [ "\$ZINK_FORCE_OVERRIDE" = "1" ]; then
-                export __GLX_VENDOR_LIBRARY_NAME=mesa
-                export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
-                export MESA_LOADER_DRIVER_OVERRIDE=zink
-                export GALLIUM_DRIVER=zink
-                export WEBKIT_DISABLE_DMABUF_RENDERER=1
+            # Enable Zink when explicitly requested via ZINK_ENABLE_OVERRIDE.
+            if [ "\$ZINK_ENABLE_OVERRIDE" = "1" ]; then
+                # Verify Mesa/Zink is installed before applying the override.
+                # zink_dri.so is the Gallium Zink driver; without it the env
+                # vars below will cause a blank viewport or hard crash.
+                ZINK_DRI=""
+                for _d in /usr/lib/dri /usr/lib/x86_64-linux-gnu/dri /usr/lib64/dri /usr/lib/aarch64-linux-gnu/dri; do
+                    if [ -f "\$_d/zink_dri.so" ]; then
+                        ZINK_DRI="\$_d/zink_dri.so"
+                        break
+                    fi
+                done
+                MESA_EGL_JSON=/usr/share/glvnd/egl_vendor.d/50_mesa.json
+                if [ -z "\$ZINK_DRI" ] || [ ! -f "\$MESA_EGL_JSON" ]; then
+                    echo "[OrcaSlicer] WARNING: Zink override requested, but it does not appear to be installed (zink_dri.so not found). Display may be blank or crash. Install mesa-vulkan-drivers (Debian/Ubuntu) or mesa-dri-drivers (Fedora/RHEL)." >&2
+                else
+                    export __GLX_VENDOR_LIBRARY_NAME=mesa
+                    export __EGL_VENDOR_LIBRARY_FILENAMES="\$MESA_EGL_JSON"
+                    export MESA_LOADER_DRIVER_OVERRIDE=zink
+                    export GALLIUM_DRIVER=zink
+                    export WEBKIT_DISABLE_DMABUF_RENDERER=1
+                fi
             fi
         fi
     fi
 fi
+
 exec "\$DIR/bin/@SLIC3R_APP_CMD@" "\$@"
 EOF
 

@@ -451,13 +451,62 @@ wxGLCanvas* OpenGLManager::create_wxglcanvas(wxWindow& parent)
     if (! can_multisample())
         attribList[12] = 0;
 
-    return new wxGLCanvas(&parent, wxID_ANY, attribList, wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS);
+    wxGLCanvas* canvas = new wxGLCanvas(&parent, wxID_ANY, attribList, wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS);
+
+#if defined(__linux__) && !wxUSE_GLCANVAS_EGL
+    // Under XWayland we optimistically assumed multisample is supported in
+    // detect_multisample(). Verify by checking whether the GTK widget was
+    // realised; if not, the multisample FBConfig wasn't available and we retry
+    // without it so the caller always gets a usable canvas.
+    if (can_multisample() && canvas->GetHandle() == nullptr) {
+        BOOST_LOG_TRIVIAL(warning) << "create_wxglcanvas: multisample canvas "
+            "creation failed (GTK widget NULL); retrying without multisample.";
+        delete canvas;
+        s_multisample = EMultisampleState::Disabled;
+        attribList[12] = 0;
+        canvas = new wxGLCanvas(&parent, wxID_ANY, attribList, wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS);
+        if (canvas->GetHandle() == nullptr)
+            BOOST_LOG_TRIVIAL(error) << "create_wxglcanvas: fallback non-multisample canvas "
+                "creation also failed (GTK widget still NULL); OpenGL will be unavailable.";
+    }
+#endif
+
+    return canvas;
 }
 
 void OpenGLManager::detect_multisample(int* attribList)
 {
     int wxVersion = wxMAJOR_VERSION * 10000 + wxMINOR_VERSION * 100 + wxRELEASE_NUMBER;
     bool enable_multisample = wxVersion >= 30003;
+
+#if defined(__linux__) && !wxUSE_GLCANVAS_EGL
+    // Under XWayland, IsDisplaySupported() triggers EGL failures internally that
+    // corrupt the X connection, causing a subsequent SIGSEGV in XQueryExtension
+    // (inside GLVND's lazy GLX init).  Avoid calling IsDisplaySupported entirely.
+    //
+    // Instead we assume multisample is supported and let the canvas creation in
+    // create_wxglcanvas() verify it: new wxGLCanvas() uses the same GLX path but
+    // without the EGL corruption, so it succeeds.  If the multisample canvas
+    // creation fails, the GetHandle()==nullptr guard in View3D/Preview::init()
+    // catches it and falls back automatically.
+    const char* wayland_display = ::getenv("WAYLAND_DISPLAY");
+    if (wayland_display && *wayland_display) {
+        // ChromeOS also sets WAYLAND_DISPLAY; still honour the disable-multisampling
+        // rule there (OpenGL virtualisation swaps R/B channels with MSAA enabled).
+        if (platform_flavor() == PlatformFlavor::LinuxOnChromium) {
+            BOOST_LOG_TRIVIAL(info) << "detect_multisample: ChromeOS detected; "
+                "disabling multisample to avoid R/B channel swap.";
+            s_multisample = EMultisampleState::Disabled;
+            return;
+        }
+        BOOST_LOG_TRIVIAL(info) << "detect_multisample: XWayland detected; "
+            "skipping IsDisplaySupported (would corrupt X connection via EGL). "
+            "Assuming multisample supported; canvas creation will verify.";
+        s_multisample = enable_multisample ? EMultisampleState::Enabled : EMultisampleState::Disabled;
+        return;
+    }
+#endif
+
     s_multisample =
         enable_multisample &&
         // Disable multi-sampling on ChromeOS, as the OpenGL virtualization swaps Red/Blue channels with multi-sampling enabled,

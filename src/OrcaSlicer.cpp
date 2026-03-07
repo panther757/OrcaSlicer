@@ -1182,19 +1182,37 @@ int CLI::run(int argc, char **argv)
     save_main_thread_id();
 
 #ifdef __WXGTK__
-    // On Linux, wxGTK has no support for Wayland, and the app crashes on
-    // startup if gtk3 is used. This env var has to be set explicitly to
-    // instruct the window manager to fall back to X server mode.
-    ::setenv("GDK_BACKEND", "x11", /* replace */ true);
+    // wxGTK is not compiled with EGL/Wayland support, so force X11 backend.
+    // On Wayland sessions this routes through XWayland; the GLX multisample
+    // detection crash that previously occurred under XWayland is prevented
+    // separately in OpenGLManager::detect_multisample().
+    {
+        const char *wayland_display = ::getenv("WAYLAND_DISPLAY");
+        const char *session_type    = ::getenv("XDG_SESSION_TYPE");
+        if (wayland_display && *wayland_display)
+            BOOST_LOG_TRIVIAL(info) << "Wayland session detected (WAYLAND_DISPLAY="
+                << wayland_display << ", XDG_SESSION_TYPE="
+                << (session_type ? session_type : "<unset>")
+                << "); forcing GDK_BACKEND=x11 for XWayland (wxGTK built without EGL).";
+        else
+            BOOST_LOG_TRIVIAL(info) << "X11 session; forcing GDK_BACKEND=x11.";
+        ::setenv("GDK_BACKEND", "x11", /* replace */ true);
+    }
 
     // WebKit2GTK's compositing mode can fail under XWayland, causing WebViews
     // (like the Setup Wizard) to render blank or freeze. Disabling compositing
     // mode forces software rendering, which works reliably on all backends.
     ::setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1", /* replace */ false);
 
-    // On Linux dual-GPU systems, request the high-performance discrete GPU.
-    // DRI_PRIME=1 handles AMD and nouveau (open-source NVIDIA) PRIME setups.
-    ::setenv("DRI_PRIME", "1", /* replace */ false);
+    // On Linux dual-GPU systems, request the high-performance discrete GPU via PRIME.
+    // Only set DRI_PRIME=1 when a second DRM device exists; setting it on single-GPU
+    // systems causes Mesa to reject the value, corrupting EGL initialisation.
+    if (::access("/dev/dri/card1", F_OK) == 0) {
+        BOOST_LOG_TRIVIAL(info) << "Dual-GPU system detected (/dev/dri/card1 present); setting DRI_PRIME=1.";
+        ::setenv("DRI_PRIME", "1", /* replace */ false);
+    } else {
+        BOOST_LOG_TRIVIAL(info) << "Single-GPU system (/dev/dri/card1 absent); DRI_PRIME not set.";
+    }
 
     // For NVIDIA proprietary driver PRIME render offload, set additional variables.
     // Only set if the NVIDIA kernel module is loaded to avoid breaking systems without NVIDIA.

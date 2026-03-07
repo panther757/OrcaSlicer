@@ -3145,7 +3145,16 @@ void GLCanvas3D::bind_event_handlers()
         m_canvas->Bind(wxEVT_GESTURE_PAN, &GLCanvas3D::on_gesture, this);
         m_canvas->Bind(wxEVT_GESTURE_ZOOM, &GLCanvas3D::on_gesture, this);
         m_canvas->Bind(wxEVT_GESTURE_ROTATE, &GLCanvas3D::on_gesture, this);
-        m_canvas->EnableTouchEvents(wxTOUCH_ZOOM_GESTURE | wxTOUCH_ROTATE_GESTURE);
+#ifdef __WXGTK__
+        // Guard against a broken canvas (e.g. EGL/GLX init failure left m_widget NULL).
+        // gtk_gesture_zoom/rotate_new() assert GTK_IS_WIDGET(), which crashes if the
+        // underlying GtkWidget was never created.
+        if (m_canvas->GetHandle() == nullptr) {
+            BOOST_LOG_TRIVIAL(warning) << "GLCanvas3D::bind_event_handlers: skipping EnableTouchEvents; "
+                "wxGLCanvas GTK widget is NULL (EGL/GLX init failed).";
+        } else
+#endif
+            m_canvas->EnableTouchEvents(wxTOUCH_ZOOM_GESTURE | wxTOUCH_ROTATE_GESTURE);
 #if __WXOSX__
         initGestures(m_canvas->GetHandle(), m_canvas); // for UIPanGestureRecognizer allowedScrollTypesMask
 #endif
