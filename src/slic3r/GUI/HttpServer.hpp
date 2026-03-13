@@ -9,6 +9,10 @@
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
 #include <boost/asio.hpp>
+#include <boost/version.hpp>
+#if BOOST_VERSION >= 108800
+namespace boost { namespace asio { using io_service = io_context; } }
+#endif
 #include <boost/thread.hpp>
 #include <string>
 #include <set>

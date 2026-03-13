@@ -5,6 +5,10 @@
 #include <string>
 #include <boost/system/error_code.hpp>
 #include <boost/asio.hpp>
+#include <boost/version.hpp>
+#if BOOST_VERSION >= 108800
+namespace boost { namespace asio { using io_service = io_context; } }
+#endif
 
 
 namespace Slic3r {

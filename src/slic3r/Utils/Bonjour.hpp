@@ -9,6 +9,10 @@
 #include <functional>
 
 #include <boost/asio.hpp>
+#include <boost/version.hpp>
+#if BOOST_VERSION >= 108800
+namespace boost { namespace asio { using io_service = io_context; } }
+#endif
 #include <boost/asio/ip/address.hpp>
 #include <boost/optional.hpp>
 #include <boost/system/error_code.hpp>

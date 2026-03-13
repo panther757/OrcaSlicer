@@ -585,6 +585,7 @@ target_link_libraries(libslic3r
         ${EXPAT_LIBRARIES}
         ${OCCT_LIBS}
         boost_libs
+        Boost::process
         cereal::cereal
         clipper
         Clipper2
